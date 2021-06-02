@@ -2,18 +2,31 @@
 # See LICENSE file for licensing details.
 name: blackbox-exporter-k8s
 description: |
-  TEMPLATE-TODO: fill out the charm's description
+  The blackbox exporter allows blackbox probing of endpoints over HTTP, HTTPS,
+  DNS, TCP and ICMP.
 summary: |
-  TEMPLATE-TODO: fill out the charm's summary
+  This charm provides the Prometheus Blackbox exporter, part of the Prometheus
+  monitoring system
+  .
+  The charm should be related to a prometheus charm.
 
-# TEMPLATE-TODO: replace with containers for your workload (delete for non-k8s)
 containers:
-  httpbin:
-    resource: httpbin-image
+  blackbox-exporter:
+    resource: blackbox-exporter-image
 
-# TEMPLATE-TODO: each container defined above must specify an oci-image resource
 resources:
-  httpbin-image:
+  blackbox-exporter-image:
     type: oci-image
-    description: OCI image for httpbin (kennethreitz/httpbin)
+    description: OCI image for blackbox exporter (prom/blackbox-exporter)
+  dashboards:
+    type: file
+    filename: grafana-dashboards.zip
+    description:
+      Zip file to provide grafana dashboards
 
+provides:
+  blackbox-exporter:
+    interface: http
+  dashboards:
+    interface: grafana-dashboard
+  # TODO: wire-in something to nagios (i.e. built-in nrpe??)

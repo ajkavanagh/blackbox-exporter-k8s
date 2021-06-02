@@ -1,14 +1,34 @@
 # Copyright 2021 Ubuntu
 # See LICENSE file for licensing details.
 #
-# TEMPLATE-TODO: change this example to suit your needs.
-# If you don't need a config, you can remove the file entirely.
-# It ties in to the example _on_config_changed handler in src/charm.py
-#
-# Learn more about config at: https://juju.is/docs/sdk/config
 
 options:
-  thing:
-    default: 🎁
-    description: A thing used by the charm.
+  # TODO: wire-in nagios in some way?
+  nagios_context:
+    default: "juju"
     type: string
+    description: |
+      A string that will be prepended to instance name to set the host name
+      in nagios. So for instance the hostname would be something like -
+        juju-myservice-0
+      If you're running multiple environments with the same services in them
+      this allows you to differentiate between them.
+  nagios_servicegroups:
+    default: "juju"
+    type: string
+    description: |
+      Comma separated list of nagios servicegroups
+  modules:
+    default: |
+      http_2xx:
+        prober: http
+        timeout: 10s
+      tcp_connect:
+        prober: tcp
+        timeout: 10s
+      icmp:
+        prober: icmp
+        timeout: 10s
+    type: string
+    description: |
+        Blackbox exporter configuration in raw YAML format
