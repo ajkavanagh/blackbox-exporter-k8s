@@ -13,11 +13,13 @@ develop a new k8s charm using the Operator Framework:
 """
 
 import logging
+import typing
+from ops._private import yaml
 
 from ops.charm import CharmBase
 from ops.framework import StoredState
 from ops.main import main
-from ops.model import ActiveStatus
+from ops.model import ActiveStatus, BlockedStatus
 
 logger = logging.getLogger(__name__)
 
@@ -27,77 +29,101 @@ class BlackboxExporterK8SCharm(CharmBase):
 
     _stored = StoredState()
 
+    # Some #defs so we don't make str spelling mistakes
+    CONTAINER_NAME = 'blackbox-exporter'
+    BB_SERVICE_NAME = 'blackbox-exporter'
+
     def __init__(self, *args):
         super().__init__(*args)
-        self.framework.observe(self.on.httpbin_pebble_ready, self._on_httpbin_pebble_ready)
+        self.framework.observe(self.on.blackbox_exporter_pebble_ready,
+                               self._on_blackbox_exporter_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.fortune_action, self._on_fortune_action)
-        self._stored.set_default(things=[])
 
-    def _on_httpbin_pebble_ready(self, event):
-        """Define and start a workload using the Pebble API.
-
-        TEMPLATE-TODO: change this example to suit your needs.
-        You'll need to specify the right entrypoint and environment
-        configuration for your specific workload. Tip: you can see the
-        standard entrypoint of an existing container using docker inspect
-
-        Learn more about Pebble layers at https://github.com/canonical/pebble
+    def _on_blackbox_exporter_pebble_ready(self, event):
+        """Define and start blackbox exporter using the Pebble API.
         """
+        logging.error("pebble ready: doing the blackbox exporter layer.")
         # Get a reference the container attribute on the PebbleReadyEvent
         container = event.workload
         # Define an initial Pebble layer configuration
         pebble_layer = {
-            "summary": "httpbin layer",
-            "description": "pebble config layer for httpbin",
+            "summary": "blackbox exporter layer",
+            "description": "pebble config layer for blackbox exporter",
             "services": {
-                "httpbin": {
+                self.BB_SERVICE_NAME: {
                     "override": "replace",
-                    "summary": "httpbin",
-                    "command": "gunicorn -b 0.0.0.0:80 httpbin:app -k gevent",
-                    "startup": "enabled",
-                    "environment": {"thing": self.model.config["thing"]},
+                    "summary": "blackbox exporter for prometheus",
+                    "command": ("/bin/blackbox_exporter "
+                                "--config.file="
+                                "/etc/blackbox_exporter/config.yml"),
+                    "startup": "disabled",
                 }
             },
         }
         # Add intial Pebble config layer using the Pebble API
-        container.add_layer("httpbin", pebble_layer, combine=True)
-        # Autostart any services that were defined with startup: enabled
-        container.autostart()
-        # Learn more about statuses in the SDK docs:
-        # https://juju.is/docs/sdk/constructs#heading--statuses
-        self.unit.status = ActiveStatus()
+        container.add_layer("blackbox_exporter", pebble_layer, combine=True)
+        self._on_config_changed(None)
 
     def _on_config_changed(self, _):
         """Just an example to show how to deal with changed configuration.
 
-        TEMPLATE-TODO: change this example to suit your needs.
-        If you don't need to handle config, you can remove this method,
-        the hook created in __init__.py for it, the corresponding test,
-        and the config.py file.
-
-        Learn more about config at https://juju.is/docs/sdk/config
+        Note: (ajkavanagh) - this may run before the pebble layer ready event.
         """
-        current = self.config["thing"]
-        if current not in self._stored.things:
-            logger.debug("found a new thing: %r", current)
-            self._stored.things.append(current)
+        container = self.unit.get_container(self.CONTAINER_NAME)
+        logging.error(
+            "services: {}".format(", ".join(container.get_services())))
+        if self.BB_SERVICE_NAME not in container.get_services():
+            # bail as the container may not be started yet.
+            return
+        try:
+            container.stop(self.BB_SERVICE_NAME)
+        except Exception as e:
+            logging.error("Container service %s raised error on .stop(): %s",
+                          self.BB_SERVICE_NAME, str(e))
+        bb_modules = self._render_config()
+        if bb_modules is None:
+            # stop the container and go into a blocked state
+            self.unit.status = BlockedStatus(
+                "config 'modules' is invalid YAML. See logs. STOPPED.")
+            return
+        try:
+            container.push("/etc/blackbox_exporter/config.yaml", bb_modules)
+        except Exception as e:
+            msg = ("Container service {} raised error on .start(): {}"
+                   .format(self.BB_SERVICE_NAME, str(e)))
+            logging.error(msg)
+            self.unit.status = BlockedStatus(msg)
+            return
+        try:
+            container.start(self.CONTAINER_NAME)
+        except Exception as e:
+            msg = ("Container service {} raised error on config: {}"
+                   .format(self.BB_SERVICE_NAME, str(e)))
+            logging.error(msg)
+            self.unit.status = BlockedStatus(msg)
+            return
+        self.unit.status = ActiveStatus()
 
-    def _on_fortune_action(self, event):
-        """Just an example to show how to receive actions.
-
-        TEMPLATE-TODO: change this example to suit your needs.
-        If you don't need to handle actions, you can remove this method,
-        the hook created in __init__.py for it, the corresponding test,
-        and the actions.py file.
-
-        Learn more about actions at https://juju.is/docs/sdk/actions
+    def _render_config(self) -> typing.Optional[str]:
+        """Render the modules config to a str ready for setting on the
+        container.
         """
-        fail = event.params["fail"]
-        if fail:
-            event.fail(fail)
+        modules_str = self.config["modules"]
+        try:
+            modules = yaml.safe_load(modules_str)
+        except yaml.YAMLError as e:
+            logging.error("Failed to load modules config, error: {}"
+                          .format(e))
+            return None
+
+        # if the operator/user has supplied 'modules' as a top level key then
+        # return that, othewise, prepend 'modules' as a dictionay key and then
+        # dump that.
+        if "modules" in modules:
+            return yaml.safe_dump(modules, default_flow_style=False)
         else:
-            event.set_results({"fortune": "A bug in the code is worth two in the documentation."})
+            return yaml.safe_dump({"modules": modules},
+                                  default_flow_style=False)
 
 
 if __name__ == "__main__":
