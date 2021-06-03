@@ -105,7 +105,7 @@ class BlackboxExporterK8SCharm(CharmBase):
         Only handles the 'modules' config at present.
         """
         with guard(self, "update modules config"):
-            container = self._guard_get_container(self.CONTAINER_NAME)
+            container = self._get_container(self.CONTAINER_NAME)
             self._ensure_service_stopped(container, self.BB_SERVICE_NAME)
             self._update_bb_config(container)
             self._ensure_service_started(container, self.BB_SERVICE_NAME)
@@ -117,7 +117,7 @@ class BlackboxExporterK8SCharm(CharmBase):
     #
     # ########################################################################
 
-    def _guard_get_container(self, container_name: str) -> 'Container':
+    def _get_container(self, container_name: str) -> 'Container':
         """Ensure that the container is available, and return it.
 
         :param container_name: the container to guard and get.
