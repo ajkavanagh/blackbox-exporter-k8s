@@ -44,9 +44,13 @@ class BlackboxExporterK8SCharm(CharmBase):
 
     def __init__(self, *args):
         super().__init__(*args)
+        self._stored.set_default(local=dict())
+
+        # set up lifecycle events
         self.framework.observe(self.on.blackbox_exporter_pebble_ready,
                                self._on_blackbox_exporter_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
+        self.framework.observe(self.on.update_status, self._on_update_status)
 
     # ########################################################################
     #
@@ -66,6 +70,13 @@ class BlackboxExporterK8SCharm(CharmBase):
         Note: (ajkavanagh) - this may run before the pebble layer ready event.
         """
         self._do_config_changed()
+
+    def _on_update_status(self, _):
+        """Deal with update status.
+
+        Just check to see if the container and service are running.
+        """
+        self._do_update_status()
 
     # ########################################################################
     #
@@ -108,8 +119,14 @@ class BlackboxExporterK8SCharm(CharmBase):
             container = self._get_container(self.CONTAINER_NAME)
             self._ensure_service_stopped(container, self.BB_SERVICE_NAME)
             self._update_bb_config(container)
-            self._ensure_service_started(container, self.BB_SERVICE_NAME)
+            self._ensure_service_running(container, self.BB_SERVICE_NAME)
             self.unit.status = ActiveStatus()
+
+    def _do_update_status(self):
+        """Check to see if the container and service are running."""
+        with guard(self, "update status"):
+            container = self._get_container(self.CONTAINER_NAME)
+            self._ensure_service_running(container, self.BB_SERVICE_NAME)
 
     # ########################################################################
     #
@@ -145,9 +162,11 @@ class BlackboxExporterK8SCharm(CharmBase):
             return
         container.stop(service_name)
 
-    def _ensure_service_started(
+    def _ensure_service_running(
             self, container: 'Container', service_name: str):
-        """Ensure that the service on the container is started.
+        """Ensure that the service on the container is running.
+
+        Start it if needed.
 
         :param container: the container name
         :param service_name: the service in the container (by name)
@@ -162,6 +181,8 @@ class BlackboxExporterK8SCharm(CharmBase):
             raise GuardException(
                 "Service {} in container {} is not available to start."
                 .format(service_name, container.name))
+        logging.info("Stating service %s on container %s",
+                     service_name, container.name)
         try:
             container.start(service_name)
         except Exception as e:
