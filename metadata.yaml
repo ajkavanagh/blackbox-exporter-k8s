@@ -18,15 +18,11 @@ resources:
   blackbox-exporter-image:
     type: oci-image
     description: OCI image for blackbox exporter (prom/blackbox-exporter)
-  dashboards:
-    type: file
-    filename: grafana-dashboards.zip
-    description:
-      Zip file to provide grafana dashboards
+
+requires:
+  monitoring:
+    interface: prometheus
 
 provides:
   blackbox-exporter:
     interface: http
-  dashboards:
-    interface: grafana-dashboard
-  # TODO: wire-in something to nagios (i.e. built-in nrpe??)

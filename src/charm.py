@@ -22,6 +22,9 @@ from ops.main import main
 from ops.model import ActiveStatus, BlockedStatus, ModelError, Container
 from ops.pebble import ServiceStatus
 
+from PrometheusRequired import MonitoringRequired
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,12 +48,21 @@ class BlackboxExporterK8SCharm(CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self._stored.set_default(local=dict())
+        self.prometheus = MonitoringRequired(self, "monitoring")
 
         # set up lifecycle events
         self.framework.observe(self.on.blackbox_exporter_pebble_ready,
                                self._on_blackbox_exporter_pebble_ready)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.update_status, self._on_update_status)
+
+        # http interface (blackbox-exporter relation)
+        self.framework.observe(self.on.blackbox_exporter_relation_joined,
+                               self._on_blackbox_exporter_relation_joined)
+
+        # Callback from Monitoring relation
+        self.framework.observe(self.prometheus.on.monitoring_updated,
+                               self._on_prometheus_monitoring_updated)
 
     # ########################################################################
     #
@@ -76,6 +88,33 @@ class BlackboxExporterK8SCharm(CharmBase):
 
         Just check to see if the container and service are running.
         """
+        self._do_update_status()
+
+    # ########################################################################
+    #
+    # blackbox-exporter (http) relation handling
+    #
+    # ########################################################################
+
+    def _on_blackbox_exporter_relation_joined(self, event):
+        """When we are joined, tell it how to reach us."""
+        # Get the bind address from the juju model
+        ip = str(self.model.get_binding(event.relation).network.bind_address)
+        event.relation.data[self.model.unit].update({
+            'hostname': ip,
+            'private-address': ip,
+            'port': 9115,
+        })
+        logging.info("Provided %s:%s on %s", ip, 9115, event.relation)
+
+    # ########################################################################
+    #
+    # monitoring (prometheus) event handling
+    #
+    # ########################################################################
+
+    def _on_prometheus_monitoring_updated(self, _):
+        """Called when the monitoring relation is made or changed."""
         self._do_update_status()
 
     # ########################################################################

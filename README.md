@@ -23,11 +23,18 @@ To confirm configuration was set:
 
     juju config prometheus-blackbox-exporter
 
-The charm should be related to the prometheus charm to allow the collection
-(scraping) of metrics from the probes.
+## Getting at the metrics
 
-It may optionally be related to the grafana charm, and the associated
-`dashboards` resource will be provided to grafana.
+By default, blackbox-exporter exports its metrics on port 9115.  Any scraper
+can access it, and it also provides a simple 'http' relation (called
+'blackbox-exporter') which simple informs the requires side of the IP address
+and port (9115).
+
+However, blackbox-exporter is really designed to be scraped by Prometheus, and
+so it supports the 'prometheus' relation type to the prometheus-k8s charm.
+This will automatically configure it to be scraped.
+
+    juju add-relation prometheus-k8s blackbox-exporter-k8s
 
 ## Developing
 
