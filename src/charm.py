@@ -315,7 +315,7 @@ def guard(charm: 'CharmBase',
                 logging.error(traceback.format_exc())
                 charm.unit.status = BlockedStatus(
                     "Error in charm (see logs): {}".format(str(e)))
-                return
+            return
         raise
 
 
